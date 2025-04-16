@@ -3,6 +3,7 @@
 #include <iostream>
 
 namespace MulticastLib {
-    
+
 Sender::Sender() { std::cout << "Sender has been created" << std::endl; }
-}
+
+}  // namespace MulticastLib

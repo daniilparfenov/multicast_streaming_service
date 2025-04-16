@@ -7,5 +7,7 @@ class Sender {
    public:
     Sender();
 };
-}
+
+}  // namespace MulticastLib
+
 #endif  // SENDER_H

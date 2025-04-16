@@ -7,5 +7,7 @@ class Receiver {
    public:
     Receiver();
 };
-}
+
+}  // namespace MulticastLib
+
 #endif  // RECEIVER_H
