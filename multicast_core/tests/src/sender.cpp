@@ -4,8 +4,11 @@
 #include <iostream>
 #include <opencv2/opencv.hpp>
 
+#define MULTICAST_GRP "224.0.0.1"
+#define MULTICAST_PORT 5000
+
 int main() {
-    MulticastLib::Sender s("224.0.0.1", 5000);
+    MulticastLib::Sender s(MULTICAST_GRP, MULTICAST_PORT);
 
     // Запуск стрима
     if (!s.startStream()) {

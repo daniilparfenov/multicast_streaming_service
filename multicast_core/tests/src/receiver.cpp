@@ -1,15 +1,26 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 
+#include <chrono>
+#include <cstring>
+#include <iomanip>
 #include <iostream>
 #include <opencv2/opencv.hpp>
+#include <unordered_map>
 #include <vector>
 
-int main() {
-    const std::string multicastIP = "224.0.0.1";  // такой же как у Sender
-    const int port = 5000;
+#define MCAST_GRP "224.0.0.1"
+#define MCAST_PORT 5000
+#define BUFFER_SIZE 65507
 
-    // Создаем UDP сокет
+struct Frame {
+    std::unordered_map<uint16_t, std::vector<uint8_t>> chunks;
+    uint16_t expected_chunks = 0;
+    std::chrono::steady_clock::time_point timestamp;
+};
+
+int main() {
+    // Создаем сокет
     int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (sockfd < 0) {
         perror("socket failed");
@@ -28,7 +39,7 @@ int main() {
     struct sockaddr_in localAddr{};
     localAddr.sin_family = AF_INET;
     localAddr.sin_addr.s_addr = htonl(INADDR_ANY);  // принимать со всех интерфейсов
-    localAddr.sin_port = htons(port);
+    localAddr.sin_port = htons(MCAST_PORT);
 
     if (bind(sockfd, (struct sockaddr*)&localAddr, sizeof(localAddr)) < 0) {
         perror("bind failed");
@@ -36,9 +47,9 @@ int main() {
         return 1;
     }
 
-    // Присоединяемся к multicast группе
+    // Присоединяемся к multicast-группе
     struct ip_mreq mreq{};
-    mreq.imr_multiaddr.s_addr = inet_addr(multicastIP.c_str());
+    mreq.imr_multiaddr.s_addr = inet_addr((const char*)MCAST_GRP);
     mreq.imr_interface.s_addr = htonl(INADDR_ANY);
     if (setsockopt(sockfd, IPPROTO_IP, IP_ADD_MEMBERSHIP, (char*)&mreq, sizeof(mreq)) < 0) {
         perror("setsockopt IP_ADD_MEMBERSHIP failed");
@@ -46,31 +57,79 @@ int main() {
         return 1;
     }
 
-    std::cout << "Listening for multicast stream on " << multicastIP << ":" << port << std::endl;
+    std::cout << "Listening for multicast stream on " << MCAST_GRP << ":" << MCAST_PORT
+              << std::endl;
 
-    // Буфер под принимаемые данные
-    std::vector<uchar> buffer(65535);  // максимально возможный UDP пакет
+    std::unordered_map<std::string, Frame> frames;
+    std::vector<uint8_t> buffer(BUFFER_SIZE);
+
     while (true) {
-        ssize_t recvLen = recv(sockfd, buffer.data(), buffer.size(), 0);
-        std::cout << "Received packet: " << recvLen << " bytes" << std::endl;
-        if (recvLen < 0) {
-            perror("recv failed");
-            break;
+        sockaddr_in senderAddr{};
+        socklen_t addrLen = sizeof(senderAddr);
+        ssize_t recvLen =
+            recvfrom(sockfd, buffer.data(), BUFFER_SIZE, 0, (sockaddr*)&senderAddr, &addrLen);
+
+        if (recvLen < 12) continue;  // слишком короткий пакет
+
+        // Извлекаем ID кадра и номер чанка
+        uint8_t frame_id[8];
+        uint16_t chunk_no, total_chunks;
+
+        memcpy(frame_id, buffer.data(), 8);
+        memcpy(&chunk_no, buffer.data() + 8, 2);
+        memcpy(&total_chunks, buffer.data() + 10, 2);
+
+        chunk_no = ntohs(chunk_no);
+        total_chunks = ntohs(total_chunks);
+
+        std::string fid(reinterpret_cast<char*>(frame_id), 8);
+        auto& frame = frames[fid];
+        frame.expected_chunks = total_chunks;
+        frame.timestamp = std::chrono::steady_clock::now();
+
+        std::vector<uint8_t> chunk_data(buffer.begin() + 12, buffer.begin() + recvLen);
+        frame.chunks[chunk_no] = std::move(chunk_data);
+
+        if (frame.chunks.size() == total_chunks) {
+            std::vector<uint8_t> ordered_data;
+            for (uint16_t i = 0; i < total_chunks; ++i) {
+                auto it = frame.chunks.find(i);
+                if (it != frame.chunks.end()) {
+                    ordered_data.insert(ordered_data.end(), it->second.begin(), it->second.end());
+                }
+            }
+
+            cv::Mat image = cv::imdecode(ordered_data, cv::IMREAD_COLOR);
+            if (!image.empty()) {
+                std::cout << "Received complete frame (" << ordered_data.size() << " bytes)"
+                          << std::endl;
+                cv::imshow("RECV CAM", image);
+                if (cv::waitKey(1) == 27) {
+                    break;
+                }
+            }
+
+            frames.erase(fid);
         }
 
-        // Декодируем изображение из буфера
-        std::vector<uchar> frameData(buffer.begin(), buffer.begin() + recvLen);
-        cv::Mat frame = cv::imdecode(frameData, cv::IMREAD_COLOR);
-        if (frame.empty()) {
-            std::cerr << "Failed to decode frame" << std::endl;
-            continue;
+        // Удаляем устаревшие кадры
+        auto now = std::chrono::steady_clock::now();
+        std::vector<std::string> expired_keys;
+        for (auto& [key, f] : frames) {
+            auto elapsed =
+                std::chrono::duration_cast<std::chrono::seconds>(now - f.timestamp).count();
+            if (elapsed > 5) {
+                uint16_t lost = f.expected_chunks - f.chunks.size();
+                std::cout << "Dropping incomplete frame " << std::hex;
+                for (char c : key)
+                    std::cout << std::setw(2) << std::setfill('0') << (int)(uint8_t)c;
+                std::cout << " (lost " << lost << " packets)" << std::endl;
+                expired_keys.push_back(key);
+            }
         }
 
-        // Отображаем кадр
-        cv::imshow("RECV CAM", frame);
-        // Выход по нажатию ESC
-        if (cv::waitKey(1) == 27) {
-            break;
+        for (const auto& key : expired_keys) {
+            frames.erase(key);
         }
     }
 
