@@ -5,6 +5,7 @@
 
 #include <iostream>
 #include <opencv2/opencv.hpp>
+#include <random>
 
 namespace MulticastLib {
 
@@ -91,20 +92,53 @@ void Sender::streamLoop() {
 
 void Sender::sendFrameToMulticast(const cv::Mat& frame) {
     // Downgrade фрейма, чтобы влез в один UDP пакет
-    cv::Mat resizedFrame;
-    cv::resize(frame, resizedFrame, cv::Size(320, 240));  // уменьшаем разрешение
-    std::vector<uchar> buffer;
-    std::vector<int> params = {cv::IMWRITE_JPEG_QUALITY, 30};  // уменьшаем качество
-    cv::imencode(".jpg", resizedFrame, buffer, params);
+    const size_t CHUNK_SIZE = 1024;  // Размер чанка в байтах
 
-    // Отправка
-    ssize_t sent = sendto(sockfd_, buffer.data(), buffer.size(), 0,
-                          (struct sockaddr*)&multicastAddr_, sizeof(multicastAddr_));
+    struct {
+        uint8_t frame_id[8];
+        uint16_t chunk_num;
+        uint16_t total_chunks;
+    } header;
+
+    // Сжимаем кадр в JPEG
+    std::vector<uchar> buffer;
+    std::vector<int> params{cv::IMWRITE_JPEG_QUALITY, 80};
+    cv::imencode(".jpg", frame, buffer, params);
+
+    // Генерируем 8-байтовый UUID
+    std::array<uint8_t, 8> frame_id;
+    std::random_device rd;
+    std::generate(frame_id.begin(), frame_id.end(), [&]() { return rd() % 256; });
+
+    // Рассчитываем количество чанков
+    const size_t total_chunks = (buffer.size() + CHUNK_SIZE - 1) / CHUNK_SIZE;
+
+    // Отправляем чанки
+    ssize_t sent = 0;
+    for (size_t i = 0; i < total_chunks; ++i) {
+        // Формируем заголовок
+        memcpy(header.frame_id, frame_id.data(), 8);
+        header.chunk_num = htons(static_cast<uint16_t>(i));
+        header.total_chunks = htons(static_cast<uint16_t>(total_chunks));
+
+        // Формируем пакет
+        std::vector<uchar> packet(sizeof(header) + CHUNK_SIZE);
+        memcpy(packet.data(), &header, sizeof(header));
+
+        // Копируем данные чанка
+        size_t offset = i * CHUNK_SIZE;
+        size_t chunk_size = std::min(CHUNK_SIZE, buffer.size() - offset);
+        memcpy(packet.data() + sizeof(header), buffer.data() + offset, chunk_size);
+
+        // Отправка
+        sent += sendto(sockfd_, packet.data(), packet.size(), 0, (struct sockaddr*)&multicastAddr_,
+                       sizeof(multicastAddr_));
+    }
 
     if (sent < 0) {
         perror("sendto failed");
     } else {
-        std::cout << "Sent " << sent << " bytes" << std::endl;
+        std::cout << "Sent " << sent << " bytes in " << total_chunks << " chunks" << std::endl;
     }
 }
 
