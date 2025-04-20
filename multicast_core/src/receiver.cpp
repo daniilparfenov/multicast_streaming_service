@@ -9,7 +9,7 @@
 namespace MulticastLib {
 
 Receiver::Receiver(const std::string& multicastIP, int port)
-    : multicastIP_(multicastIP), port_(port), isReceiving_(false), sockfd_(-1) {}
+    : multicastIP_(multicastIP), port_(port), isReceiving_(false), sockfd_(-1), data_received(0) {}
 
 Receiver::~Receiver() {
     stop();
@@ -88,10 +88,9 @@ void Receiver::processPacket(const std::vector<uint8_t>& buffer, ssize_t recvLen
     memcpy(frame_id, buffer.data(), 8);
     memcpy(&chunk_no, buffer.data() + 8, 2);
     memcpy(&total_chunks, buffer.data() + 10, 2);
-
+    data_received += 12;
     chunk_no = ntohs(chunk_no);
     total_chunks = ntohs(total_chunks);
-
     std::string fid(reinterpret_cast<char*>(frame_id), 8);
 
     {
@@ -99,8 +98,8 @@ void Receiver::processPacket(const std::vector<uint8_t>& buffer, ssize_t recvLen
         auto& frame = frames_[fid];
         frame.expected_chunks = total_chunks;
         frame.timestamp = std::chrono::steady_clock::now();
-
         std::vector<uint8_t> chunk(buffer.begin() + 12, buffer.begin() + recvLen);
+        data_received += chunk.size();
         frame.chunks[chunk_no] = std::move(chunk);
 
         if (frame.chunks.size() == total_chunks) {
@@ -111,13 +110,13 @@ void Receiver::processPacket(const std::vector<uint8_t>& buffer, ssize_t recvLen
                     ordered_data.insert(ordered_data.end(), chunk.begin(), chunk.end());
                 }
             }
-
+            std::cout << "Received " << data_received << " bytes in " << total_chunks << " chunks" << std::endl;
             cv::Mat frame = cv::imdecode(ordered_data, cv::IMREAD_COLOR);
             if (!frame.empty()) {
                 std::lock_guard<std::mutex> frameLock(frameMutex_);
                 lastFrame_ = frame.clone();
             }
-
+            data_received = 0;
             frames_.erase(fid);
         }
     }

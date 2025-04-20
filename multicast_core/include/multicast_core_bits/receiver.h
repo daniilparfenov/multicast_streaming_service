@@ -35,6 +35,7 @@ class Receiver {
     std::string multicastIP_;
     int port_;
     int sockfd_;
+    int data_received;
     struct sockaddr_in localAddr_;
     struct ip_mreq mreq_;
 
