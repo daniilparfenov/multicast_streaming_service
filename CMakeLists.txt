@@ -16,6 +16,8 @@ set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 
 project(multicast_streaming_service)
 
+find_package(OpenCV REQUIRED)
+
 include_directories("${CMAKE_SOURCE_DIR}/multicast_core/include/multicast_core_bits")
 include_directories("${CMAKE_SOURCE_DIR}/pybindings")
 
@@ -37,7 +39,7 @@ pybind11_add_module(multicast_core
 	${PYBINDINGS_FILES}
 )
 
-target_link_libraries(multicast_core PUBLIC)
+target_link_libraries(multicast_core PUBLIC ${OpenCV_LIBS})
 
 install(TARGETS multicast_core
   COMPONENT python

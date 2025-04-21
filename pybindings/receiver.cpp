@@ -1,6 +1,20 @@
 #include "receiver.h"
 
+#include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
-namespace py = pybind11;
+#include <pybind11/stl.h>
 
-void init_receiver(py::module &m) { py::class_<Receiver>(m, "Receiver").def(py::init<>()); }
+#include "converters.h"
+
+namespace py = pybind11;
+using namespace MulticastLib;
+
+void init_receiver(py::module_& m) {
+    py::class_<Receiver>(m, "Receiver")
+        .def(py::init<const std::string&, int>())
+        .def("start", &Receiver::start)
+        .def("stop", &Receiver::stop)
+        .def(
+            "get_latest_frame", [](Receiver& self) { return matToNumpy(self.getLatestFrame()); },
+            "Get latest frame as numpy array");
+}
