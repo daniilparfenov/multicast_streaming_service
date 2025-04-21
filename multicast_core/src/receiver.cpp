@@ -5,7 +5,7 @@
 
 #include <iomanip>
 #include <iostream>
-#define LISTENING_TIMEOUT_S 5
+#define LISTENING_TIMEOUT_S 3
 namespace MulticastLib {
 
 Receiver::Receiver(const std::string& multicastIP, int port)
@@ -177,6 +177,11 @@ void Receiver::cleanupExpiredFrames() {
 cv::Mat Receiver::getLatestFrame() {
     std::lock_guard<std::mutex> lock(frameMutex_);
     return lastFrame_.clone();
+}
+
+bool Receiver::isReceiving() {
+    if (isReceiving_) return true;
+    return false;
 }
 
 }  // namespace MulticastLib

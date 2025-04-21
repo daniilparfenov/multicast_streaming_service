@@ -19,6 +19,7 @@ class Receiver {
     bool start();
     void stop();
     cv::Mat getLatestFrame();
+    bool isReceiving();
 
    private:
     struct FrameData {
