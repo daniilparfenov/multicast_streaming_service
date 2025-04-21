@@ -6,8 +6,6 @@ bin
 
 __pycache__
 
-ProjectConfig.cmake
-
 logs/
 
 static/
