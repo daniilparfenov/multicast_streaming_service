@@ -14,6 +14,7 @@ void init_receiver(py::module_& m) {
         .def(py::init<const std::string&, int>())
         .def("start", &Receiver::start)
         .def("stop", &Receiver::stop)
+        .def("is_active", &Receiver::isReceiving)
         .def(
             "get_latest_frame", [](Receiver& self) { return matToNumpy(self.getLatestFrame()); },
             "Get latest frame as numpy array");

@@ -73,6 +73,15 @@ class StreamManager:
         """Get the current status of the streaming."""
         return "streaming" if self.is_streaming else "stopped"
 
+    def check_server_activity(self):
+        """Check if the server is active."""
+        if self.client.is_active():
+            logger.info("Server is active")
+            return True
+        else:
+            logger.warning("Server is not active")
+            return False
+
 
 class WebServer:
     def __init__(self, controller):
@@ -122,7 +131,7 @@ class WebServer:
                 frame = self.controller.get_latest_frame()
 
                 # Если долго нет нового кадра — показываем заглушку
-                if frame is None:
+                if frame is None or not self.controller.check_server_activity():
                     logger.warning("No frame received recently, showing placeholder.")
                     placeholder = self.get_placeholder_image()
                     _, jpeg = cv2.imencode(".jpg", placeholder)
