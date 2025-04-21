@@ -21,19 +21,14 @@ os.makedirs("static", exist_ok=True)
 os.makedirs("templates", exist_ok=True)
 
 # Конфигурация логгера
+logging.basicConfig(
+    level=logging.INFO,
+    filename="logs/client_logs.log",
+    filemode="a",
+    format="[%(asctime)s] %(levelname)s - %(message)s",
+    datefmt="%H:%M:%S",
+)
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-
-if not logger.handlers:
-    file_handler = logging.FileHandler(
-        "logs/client_logs.log", mode="a", encoding="utf-8"
-    )
-    file_handler.setLevel(logging.INFO)
-    formatter = logging.Formatter(
-        "[%(asctime)s] %(levelname)s - %(message)s", datefmt="%H:%M:%S"
-    )
-    file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
 
 
 # Wrapper С++ библиотеки
