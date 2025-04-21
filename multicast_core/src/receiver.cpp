@@ -60,6 +60,11 @@ bool Receiver::start() {
 
 void Receiver::stop() {
     isReceiving_ = false;
+
+    if (sockfd_ != -1) {
+        close(sockfd_);
+    }
+
     if (receiveThread_.joinable()) receiveThread_.join();
 }
 
@@ -110,7 +115,8 @@ void Receiver::processPacket(const std::vector<uint8_t>& buffer, ssize_t recvLen
                     ordered_data.insert(ordered_data.end(), chunk.begin(), chunk.end());
                 }
             }
-            std::cout << "Received " << data_received << " bytes in " << total_chunks << " chunks" << std::endl;
+            std::cout << "Received " << data_received << " bytes in " << total_chunks << " chunks"
+                      << std::endl;
             cv::Mat frame = cv::imdecode(ordered_data, cv::IMREAD_COLOR);
             if (!frame.empty()) {
                 std::lock_guard<std::mutex> frameLock(frameMutex_);
