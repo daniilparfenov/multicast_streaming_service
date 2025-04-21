@@ -27,7 +27,7 @@ class Receiver {
         std::chrono::steady_clock::time_point timestamp;
     };
 
-    void receiveLoop();
+    bool receiveLoop();
     bool setupSocket();
     void processPacket(const std::vector<uint8_t>& buffer, ssize_t recvLen);
     void cleanupExpiredFrames();

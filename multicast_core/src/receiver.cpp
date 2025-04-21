@@ -5,7 +5,7 @@
 
 #include <iomanip>
 #include <iostream>
-
+#define LISTENING_TIMEOUT_S 5
 namespace MulticastLib {
 
 Receiver::Receiver(const std::string& multicastIP, int port)
@@ -20,6 +20,14 @@ bool Receiver::setupSocket() {
     sockfd_ = socket(AF_INET, SOCK_DGRAM, 0);
     if (sockfd_ < 0) {
         perror("socket failed");
+        return false;
+    }
+
+    struct timeval tv{.tv_sec = LISTENING_TIMEOUT_S, .tv_usec = 0};
+
+    if (setsockopt(sockfd_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) {
+        perror("setsockopt SO_RCVTIMEO failed");
+        close(sockfd_);
         return false;
     }
 
@@ -60,7 +68,10 @@ bool Receiver::start() {
 
 void Receiver::stop() {
     isReceiving_ = false;
-
+    {
+        std::lock_guard<std::mutex> lock(frameMutex_);
+        lastFrame_ = cv::Mat();
+    }
     if (sockfd_ != -1) {
         close(sockfd_);
     }
@@ -68,9 +79,9 @@ void Receiver::stop() {
     if (receiveThread_.joinable()) receiveThread_.join();
 }
 
-void Receiver::receiveLoop() {
+bool Receiver::receiveLoop() {
     std::vector<uint8_t> buffer(65507);
-
+    auto lastPacketTime = std::chrono::steady_clock::now();
     while (isReceiving_) {
         sockaddr_in senderAddr{};
         socklen_t addrLen = sizeof(senderAddr);
@@ -80,8 +91,17 @@ void Receiver::receiveLoop() {
         if (recvLen > 0) {
             processPacket(buffer, recvLen);
             cleanupExpiredFrames();
+            lastPacketTime = std::chrono::steady_clock::now();
+        } else {
+            auto now = std::chrono::steady_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - lastPacketTime);
+            if (elapsed.count() >= LISTENING_TIMEOUT_S) {
+                std::cout << "Stream is not available" << std::endl;
+                isReceiving_ = false;
+            }
         }
     }
+    return false;
 }
 
 void Receiver::processPacket(const std::vector<uint8_t>& buffer, ssize_t recvLen) {
