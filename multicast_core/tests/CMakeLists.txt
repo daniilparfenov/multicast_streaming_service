@@ -12,9 +12,16 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/../bin)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_BINARY_DIR}/../bin)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/../bin)
 
-find_library(MULTICAST_CORE_LIB multicast_core HINTS ${CPP_LIB_INSTALL_DIR}/lib)
-include_directories(${CPP_LIB_INSTALL_DIR}/include)
+set(CMAKE_PREFIX_PATH ${CPP_LIB_INSTALL_DIR} ${CMAKE_PREFIX_PATH})
+find_package(multicast_core REQUIRED)
+find_package(OpenCV REQUIRED)
+message(STATUS "Using OpenCV version: ${OpenCV_VERSION}")
 
-add_executable(test src/test.cpp)
+add_executable(sender src/sender.cpp)
 
-target_link_libraries(test PUBLIC ${MULTICAST_CORE_LIB})
+target_include_directories(sender PUBLIC ${OpenCV_INCLUDE_DIRS})
+target_link_libraries(sender PUBLIC multicast_core::multicast_core ${OpenCV_LIBS})
+
+add_executable(receiver src/receiver.cpp)
+target_include_directories(receiver PUBLIC ${OpenCV_INCLUDE_DIRS})
+target_link_libraries(receiver PUBLIC multicast_core::multicast_core ${OpenCV_LIBS})

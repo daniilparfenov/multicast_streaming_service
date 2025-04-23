@@ -5,3 +5,9 @@ build
 bin
 
 __pycache__
+
+logs/
+
+static/
+
+*.log
