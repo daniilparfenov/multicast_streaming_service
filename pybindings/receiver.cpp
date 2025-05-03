@@ -17,5 +17,14 @@ void init_receiver(py::module_& m) {
         .def("is_active", &Receiver::isReceiving)
         .def(
             "get_latest_frame", [](Receiver& self) { return matToNumpy(self.getLatestFrame()); },
-            "Get latest frame as numpy array");
+            "Get latest frame as numpy array")
+        .def("getStatistics", &Receiver::getStatistics);
+}
+
+void init_receiver_statistics(py::module_& m) {
+    py::class_<ReceiverStatistics>(m, "ReceiverStatistics")
+    .def_readonly("totalPacketsReceived", &ReceiverStatistics::totalPacketsReceived)
+    .def_readonly("totalCorruptedPackets", &ReceiverStatistics::totalCorruptedPackets)
+    .def_readonly("totalFramesDecoded", &ReceiverStatistics::totalFramesDecoded)
+    .def_readonly("avgFps", &ReceiverStatistics::avgFps);
 }

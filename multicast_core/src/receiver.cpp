@@ -105,7 +105,16 @@ bool Receiver::receiveLoop() {
 }
 
 void Receiver::processPacket(const std::vector<uint8_t>& buffer, ssize_t recvLen) {
-    if (recvLen < 12) return;
+    {
+        std::lock_guard<std::mutex> lock(statsMutex_);
+        stats_.totalPacketsReceived++;
+    }
+
+    if (recvLen < 12) {
+        std::lock_guard<std::mutex> lock(statsMutex_);
+        stats_.totalCorruptedPackets++;
+        return;
+    }
 
     uint8_t frame_id[8];
     uint16_t chunk_no, total_chunks;
@@ -139,8 +148,24 @@ void Receiver::processPacket(const std::vector<uint8_t>& buffer, ssize_t recvLen
                       << std::endl;
             cv::Mat frame = cv::imdecode(ordered_data, cv::IMREAD_COLOR);
             if (!frame.empty()) {
-                std::lock_guard<std::mutex> frameLock(frameMutex_);
-                lastFrame_ = frame.clone();
+                {
+                    std::lock_guard<std::mutex> frameLock(frameMutex_);
+                    lastFrame_ = frame.clone();
+                }
+
+                std::lock_guard<std::mutex> lock(statsMutex_);
+                stats_.totalFramesDecoded++;
+                auto now = std::chrono::steady_clock::now();
+                if (stats_.totalFramesDecoded > 1) {
+                    double delta =
+                        std::chrono::duration<double>(now - stats_.lastFrameTime).count();
+                    if (delta > 0) {
+                        double fps = 1.0 / delta;
+                        stats_.avgFps = (stats_.avgFps * (stats_.totalFramesDecoded - 1) + fps) /
+                                        stats_.totalFramesDecoded;
+                    }
+                }
+                stats_.lastFrameTime = now;
             }
             data_received = 0;
             frames_.erase(fid);
@@ -182,6 +207,11 @@ cv::Mat Receiver::getLatestFrame() {
 bool Receiver::isReceiving() {
     if (isReceiving_) return true;
     return false;
+}
+
+ReceiverStatistics Receiver::getStatistics() {
+    std::lock_guard<std::mutex> lock(statsMutex_);
+    return stats_;
 }
 
 }  // namespace MulticastLib
