@@ -1,16 +1,15 @@
 #ifndef SENDER_H
 #define SENDER_H
 
-#include <winsock2.h>
-#include <ws2tcpip.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 #include <atomic>
 #include <chrono>
 #include <mutex>
 #include <opencv2/opencv.hpp>
 #include <thread>
 #include <unordered_map>
-
-#pragma comment(lib, "Ws2_32.lib")
 
 namespace MulticastLib {
 
@@ -29,12 +28,13 @@ private:
     bool setupSocket();
     void startHeartbeatServer();
     void cleanupInactiveClients();
+    void sendFrameToMulticast(const cv::Mat& frame);
 
     std::string multicastIP_;
     int port_;
-    SOCKET sockfd_;
-    SOCKET heartbeatSock_;
-    sockaddr_in multicastAddr_;
+    int sockfd_;
+    int heartbeatSockfd_;
+    struct sockaddr_in multicastAddr_;
 
     cv::VideoCapture camera_;
     std::atomic<bool> isStreaming_;
