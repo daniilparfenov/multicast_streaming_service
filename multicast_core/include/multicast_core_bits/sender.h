@@ -1,43 +1,54 @@
 #ifndef SENDER_H
 #define SENDER_H
 
-#include <netinet/in.h>
-
+#include <winsock2.h>
+#include <ws2tcpip.h>
 #include <atomic>
+#include <chrono>
 #include <mutex>
 #include <opencv2/opencv.hpp>
 #include <thread>
+#include <unordered_map>
+
+#pragma comment(lib, "Ws2_32.lib")
 
 namespace MulticastLib {
 
 class Sender {
-   public:
+public:
     Sender(const std::string& multicastAddress, int port);
     ~Sender();
 
     bool startStream();
     void stopStream();
-
     cv::Mat getPreviewFrame();
+    int getActiveUsers() const;
 
-   private:
+private:
     void streamLoop();
     bool setupSocket();
-    void sendFrameToMulticast(const cv::Mat& frame);
+    void startHeartbeatServer();
+    void cleanupInactiveClients();
 
     std::string multicastIP_;
     int port_;
-    int sockfd_;
-    struct sockaddr_in multicastAddr_;
+    SOCKET sockfd_;
+    SOCKET heartbeatSock_;
+    sockaddr_in multicastAddr_;
 
     cv::VideoCapture camera_;
     std::atomic<bool> isStreaming_;
     std::thread streamThread_;
+    std::thread heartbeatThread_;
+
+    std::unordered_map<std::string, std::chrono::system_clock::time_point> activeClients_;
+    mutable std::mutex clientsMutex_;
+    std::atomic<int> activeUsersCount_{0};
 
     cv::Mat lastFrame_;
     std::mutex lastFrameMutex_;
 };
 
-}  // namespace MulticastLib
+} // namespace MulticastLib
 
-#endif  // SENDER_H
+#endif
