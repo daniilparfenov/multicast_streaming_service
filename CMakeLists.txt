@@ -1,23 +1,20 @@
 cmake_minimum_required(VERSION 3.16)
-
 project(multicast_streaming_service)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(OpenCV REQUIRED)
 find_package(Threads REQUIRED)
 
-include_directories(
-    "${CMAKE_SOURCE_DIR}/multicast_core/include/multicast_core_bits"
-    "${CMAKE_SOURCE_DIR}/pybindings"
-)
+# Указываем явные пути к исходным файлам
+set(SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/multicast_core/src")
+set(PYBINDINGS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/pybindings")
 
-file(GLOB SRC_FILES "multicast_core/src/*.cpp")
-file(GLOB HEADER_FILES "multicast_core/include/multicast_core_bits/*.h")
-file(GLOB PYBINDINGS_FILES "pybindings/*.cpp")
+# Собираем исходники
+file(GLOB SRC_FILES "${SRC_DIR}/*.cpp")
+file(GLOB PYBINDINGS_FILES "${PYBINDINGS_DIR}/*.cpp")
 
 include(FetchContent)
 FetchContent_Declare(
@@ -27,16 +24,29 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(pybind11)
 
-add_library(multicast_core SHARED ${SRC_FILES} ${PYBINDINGS_FILES})
-target_link_libraries(multicast_core PRIVATE ${OpenCV_LIBS} Threads::Threads)
+# Основная библиотека
+add_library(multicast_core SHARED 
+    ${SRC_FILES}
+    ${PYBINDINGS_FILES}
+)
 
-if(WIN32)
-    target_link_libraries(multicast_core PRIVATE ws2_32)
-endif()
+target_include_directories(multicast_core PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/multicast_core/include/multicast_core_bits"
+)
 
-pybind11_add_module(multicast_core_pybind ${PYBINDINGS_FILES})
-target_link_libraries(multicast_core_pybind PRIVATE multicast_core)
+target_link_libraries(multicast_core 
+    PRIVATE 
+    ${OpenCV_LIBS} 
+    pthread
+)
 
-install(TARGETS multicast_core_pybind
-    DESTINATION "${CMAKE_INSTALL_PREFIX}/python"
+# Python-модуль
+pybind11_add_module(multicast_core_pybind 
+    ${PYBINDINGS_FILES}
+    ${SRC_FILES}
+)
+
+target_link_libraries(multicast_core_pybind 
+    PRIVATE 
+    multicast_core
 )
