@@ -1,87 +1,88 @@
 #include "sender.h"
-
-#include <arpa/inet.h>
-#include <unistd.h>
-
 #include <iostream>
-#include <opencv2/opencv.hpp>
 #include <random>
+#include <unistd.h>
+#include <fcntl.h>
+#include <poll.h>
 
 namespace MulticastLib {
 
 Sender::Sender(const std::string& multicastAddress, int port) 
-    : multicastIP_(multicastAddress), port_(port), sockfd_(INVALID_SOCKET), 
-      heartbeatSock_(INVALID_SOCKET), isStreaming_(false) {
-    WSADATA wsaData;
-    WSAStartup(MAKEWORD(2, 2), &wsaData);
-}
+    : multicastIP_(multicastAddress), port_(port), 
+      sockfd_(-1), heartbeatSockfd_(-1), isStreaming_(false) {}
 
 Sender::~Sender() {
     stopStream();
-    WSACleanup();
+    if (sockfd_ != -1) close(sockfd_);
+    if (heartbeatSockfd_ != -1) close(heartbeatSockfd_);
 }
 
 bool Sender::setupSocket() {
     // Multicast socket
-    sockfd_ = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (sockfd_ == INVALID_SOCKET) {
-        std::cerr << "Failed to create socket: " << WSAGetLastError() << std::endl;
+    sockfd_ = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sockfd_ < 0) {
+        perror("socket");
         return false;
     }
 
     // Heartbeat socket
-    heartbeatSock_ = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (heartbeatSock_ == INVALID_SOCKET) {
-        std::cerr << "Failed to create heartbeat socket: " << WSAGetLastError() << std::endl;
+    heartbeatSockfd_ = socket(AF_INET, SOCK_DGRAM, 0);
+    if (heartbeatSockfd_ < 0) {
+        perror("heartbeat socket");
         return false;
     }
 
     // Bind heartbeat socket
-    sockaddr_in heartbeatAddr{};
+    struct sockaddr_in heartbeatAddr {};
+    memset(&heartbeatAddr, 0, sizeof(heartbeatAddr));
     heartbeatAddr.sin_family = AF_INET;
     heartbeatAddr.sin_addr.s_addr = htonl(INADDR_ANY);
     heartbeatAddr.sin_port = htons(port_ + 1);
 
-    if (bind(heartbeatSock_, (sockaddr*)&heartbeatAddr, sizeof(heartbeatAddr)) == SOCKET_ERROR) {
-        std::cerr << "Bind failed: " << WSAGetLastError() << std::endl;
+    if (bind(heartbeatSockfd_, (struct sockaddr*)&heartbeatAddr, sizeof(heartbeatAddr)) < 0) {
+        perror("bind");
         return false;
     }
 
     // Configure multicast socket
+    int ttl = 1;
+    if (setsockopt(sockfd_, IPPROTO_IP, IP_MULTICAST_TTL, &ttl, sizeof(ttl)) < 0) {
+        perror("setsockopt TTL");
+        return false;
+    }
+
+    memset(&multicastAddr_, 0, sizeof(multicastAddr_));
     multicastAddr_.sin_family = AF_INET;
     multicastAddr_.sin_addr.s_addr = inet_addr(multicastIP_.c_str());
     multicastAddr_.sin_port = htons(port_);
-
-    int ttl = 1;
-    if (setsockopt(sockfd_, IPPROTO_IP, IP_MULTICAST_TTL, (char*)&ttl, sizeof(ttl)) == SOCKET_ERROR) {
-        std::cerr << "setsockopt failed: " << WSAGetLastError() << std::endl;
-        return false;
-    }
 
     return true;
 }
 
 void Sender::startHeartbeatServer() {
     heartbeatThread_ = std::thread([this]() {
-        char buffer[1024];
-        sockaddr_in clientAddr{};
-        int addrLen = sizeof(clientAddr);
+        struct pollfd fds[1];
+        fds[0].fd = heartbeatSockfd_;
+        fds[0].events = POLLIN;
 
         while (isStreaming_) {
-            int bytes = recvfrom(heartbeatSock_, buffer, sizeof(buffer), 0,
-                (sockaddr*)&clientAddr, &addrLen);
+            int rc = poll(fds, 1, 100); // Таймаут 100 мс
+            if (rc > 0) {
+                struct sockaddr_in clientAddr{};
+                socklen_t addrLen = sizeof(clientAddr);
+                char buffer[1024];
 
-            if (bytes > 0) {
-                char clientIP[INET_ADDRSTRLEN];
-                inet_ntop(AF_INET, &clientAddr.sin_addr, clientIP, INET_ADDRSTRLEN);
+                ssize_t bytes = recvfrom(heartbeatSockfd_, buffer, sizeof(buffer), 0,
+                                       (struct sockaddr*)&clientAddr, &addrLen);
+                if (bytes > 0) {
+                    char clientIP[INET_ADDRSTRLEN];
+                    inet_ntop(AF_INET, &clientAddr.sin_addr, clientIP, INET_ADDRSTRLEN);
 
-                std::lock_guard<std::mutex> lock(clientsMutex_);
-                activeClients_[clientIP] = std::chrono::system_clock::now();
-                activeUsersCount_ = activeClients_.size();
+                    std::lock_guard<std::mutex> lock(clientsMutex_);
+                    activeClients_[clientIP] = std::chrono::system_clock::now();
+                    activeUsersCount_ = activeClients_.size();
+                }
             }
-
-            // Cleanup every 5 seconds
-            std::this_thread::sleep_for(std::chrono::seconds(5));
             cleanupInactiveClients();
         }
     });
@@ -105,7 +106,7 @@ bool Sender::startStream() {
     if (isStreaming_) return false;
     if (!setupSocket()) return false;
 
-    camera_.open(0, cv::CAP_DSHOW);
+    camera_.open(0, cv::CAP_V4L2);
     if (!camera_.isOpened()) {
         std::cerr << "Failed to open camera" << std::endl;
         return false;
@@ -118,91 +119,69 @@ bool Sender::startStream() {
 }
 
 void Sender::stopStream() {
-    // Останавливает стрим и освобождает ресурсы
     isStreaming_ = false;
     if (streamThread_.joinable()) streamThread_.join();
-    camera_.release();
-    close(sockfd_);
+    if (heartbeatThread_.joinable()) heartbeatThread_.join();
+    if (camera_.isOpened()) camera_.release();
 }
 
 void Sender::streamLoop() {
     while (isStreaming_) {
-        // Захват кадра
         cv::Mat frame;
         camera_ >> frame;
-        if (frame.empty()) {
-            std::cerr << "Failed to capture frame" << std::endl;
-            continue;
-        }
+        if (frame.empty()) continue;
 
-        // Запоминание последнего кадра (для вывода превью)
         {
             std::lock_guard<std::mutex> lock(lastFrameMutex_);
-            this->lastFrame_ = frame.clone();
+            lastFrame_ = frame.clone();
         }
 
-        // Отправка кадра по multicast
-        sendFrameToMulticast(frame.clone());
-        std::this_thread::sleep_for(
-            std::chrono::milliseconds(33));  // Задержка, выходит примерно 30 FPS
+        sendFrameToMulticast(frame);
+        std::this_thread::sleep_for(std::chrono::milliseconds(33));
     }
 }
 
 void Sender::sendFrameToMulticast(const cv::Mat& frame) {
-    // Downgrade фрейма, чтобы влез в один UDP пакет
-    const size_t CHUNK_SIZE = 1024;  // Размер чанка в байтах
-
+    const size_t CHUNK_SIZE = 1024;
     struct {
         uint8_t frame_id[8];
         uint16_t chunk_num;
         uint16_t total_chunks;
     } header;
 
-    // Сжимаем кадр в JPEG
     std::vector<uchar> buffer;
-    std::vector<int> params{cv::IMWRITE_JPEG_QUALITY, 80};
-    cv::imencode(".jpg", frame, buffer, params);
+    cv::imencode(".jpg", frame, buffer, {cv::IMWRITE_JPEG_QUALITY, 80});
 
-    // Генерируем 8-байтовый UUID
-    std::array<uint8_t, 8> frame_id;
     std::random_device rd;
+    std::array<uint8_t, 8> frame_id;
     std::generate(frame_id.begin(), frame_id.end(), [&]() { return rd() % 256; });
 
-    // Рассчитываем количество чанков
     const size_t total_chunks = (buffer.size() + CHUNK_SIZE - 1) / CHUNK_SIZE;
 
-    // Отправляем чанки
-    ssize_t sent = 0;
     for (size_t i = 0; i < total_chunks; ++i) {
-        // Формируем заголовок
         memcpy(header.frame_id, frame_id.data(), 8);
         header.chunk_num = htons(static_cast<uint16_t>(i));
         header.total_chunks = htons(static_cast<uint16_t>(total_chunks));
 
-        // Формируем пакет
         std::vector<uchar> packet(sizeof(header) + CHUNK_SIZE);
         memcpy(packet.data(), &header, sizeof(header));
 
-        // Копируем данные чанка
         size_t offset = i * CHUNK_SIZE;
         size_t chunk_size = std::min(CHUNK_SIZE, buffer.size() - offset);
         memcpy(packet.data() + sizeof(header), buffer.data() + offset, chunk_size);
 
-        // Отправка
-        sent += sendto(sockfd_, packet.data(), packet.size(), 0, (struct sockaddr*)&multicastAddr_,
-                       sizeof(multicastAddr_));
-    }
-
-    if (sent < 0) {
-        perror("sendto failed");
-    } else {
-        std::cout << "Sent " << sent << " bytes in " << total_chunks << " chunks" << std::endl;
+        sendto(sockfd_, packet.data(), packet.size(), 0, 
+             (struct sockaddr*)&multicastAddr_, sizeof(multicastAddr_));
     }
 }
 
 cv::Mat Sender::getPreviewFrame() {
     std::lock_guard<std::mutex> lock(lastFrameMutex_);
-    return lastFrame_.clone();  // Возвращаем копию последнего кадра
+    return lastFrame_.clone();
 }
 
-}  // namespace MulticastLib
+int Sender::getActiveUsers() const {
+    return activeUsersCount_.load();
+}
+
+} // namespace MulticastLib
