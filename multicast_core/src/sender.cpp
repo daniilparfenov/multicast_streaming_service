@@ -74,6 +74,7 @@ void Sender::stopStream() {
     camera_.release();
     if (controlThread_.joinable()) controlThread_.join();
     if (cleanupThread_.joinable()) cleanupThread_.join();
+    activeClientCount_ = 0;
     close(sockfd_);
 }
 
