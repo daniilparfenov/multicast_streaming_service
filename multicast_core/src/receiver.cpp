@@ -42,6 +42,11 @@ bool Receiver::setupSocket() {
         return false;
     }
 
+    if (setsockopt(sockfd_, SOL_SOCKET, SO_REUSEPORT, &reuse, sizeof(reuse)) < 0) {
+        perror("setsockopt SO_REUSEPORT failed");
+        return false;
+    }
+
     memset(&localAddr_, 0, sizeof(localAddr_));
     localAddr_.sin_family = AF_INET;
     localAddr_.sin_addr.s_addr = htonl(INADDR_ANY);
