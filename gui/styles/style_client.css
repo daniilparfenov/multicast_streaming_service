@@ -1,0 +1,92 @@
+:root {
+    --bg-color: #f0f2f5;
+    --text-color: #212529;
+    --card-bg: #ffffff;
+    --accent-color: #198754;
+    --placeholder-bg: #e9ecef;
+    --transition-speed: 0.3s;
+}
+
+body.dark {
+    --bg-color: #121212;
+    --text-color: #f1f1f1;
+    --card-bg: #1f1f1f;
+    --accent-color: #66d9ef;
+    --placeholder-bg: #2c2c2c;
+}
+
+body {
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    transition: background-color var(--transition-speed), color var(--transition-speed);
+}
+
+.dashboard {
+    max-width: 1200px;
+    margin: 2rem auto;
+    padding: 20px;
+    background-color: var(--bg-color);
+    transition: background-color var(--transition-speed);
+}
+
+.video-container,
+.stats-card {
+    background-color: var(--card-bg);
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    padding: 1rem;
+    animation: fadeIn 0.6s ease-in-out;
+    transition: background-color var(--transition-speed);
+}
+
+.controls {
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+#videoFeed {
+    border-radius: 10px;
+    width: 100%;
+    animation: fadeIn 0.4s ease-in;
+}
+
+.placeholder {
+    height: 480px;
+    background-color: var(--placeholder-bg);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #6c757d;
+    font-size: 1.2rem;
+    animation: fadeIn 0.5s ease-in-out;
+}
+
+.table {
+    color: var(--text-color);
+}
+
+.btn-lg {
+    padding: 0.75rem 2rem;
+    font-size: 1.1rem;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    border-radius: 50px;
+}
+
+.btn-lg:hover {
+    transform: scale(1.03);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.theme-toggle {
+    position: fixed;
+    top: 20px;
+    left: 20px;
+    z-index: 1050;
+}
+
+/* Animations */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
