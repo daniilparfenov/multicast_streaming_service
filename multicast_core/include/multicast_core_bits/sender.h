@@ -4,6 +4,8 @@
 #include <netinet/in.h>
 
 #include <atomic>
+#include <chrono>
+#include <map>
 #include <mutex>
 #include <opencv2/opencv.hpp>
 #include <thread>
@@ -20,10 +22,14 @@ class Sender {
 
     cv::Mat getPreviewFrame();
 
+    int getActiveClientCount() const;
+
    private:
     void streamLoop();
     bool setupSocket();
     void sendFrameToMulticast(const cv::Mat& frame);
+    void startControlListener();
+    void cleanupInactiveClients();
 
     std::string multicastIP_;
     int port_;
@@ -36,6 +42,13 @@ class Sender {
 
     cv::Mat lastFrame_;
     std::mutex lastFrameMutex_;
+
+    std::thread controlThread_;
+    std::mutex clientMutex_;
+    std::map<std::string, std::chrono::steady_clock::time_point> clientHeartbeats_;
+    std::atomic<int> activeClientCount_{0};
+
+    std::thread cleanupThread_;
 };
 
 }  // namespace MulticastLib
