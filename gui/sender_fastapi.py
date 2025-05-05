@@ -84,7 +84,16 @@ class WebServer:
         self.app.mount("/static", StaticFiles(directory="static"), name="static")
 
     def get_stats(self):
-        pass
+        active_clients_count = self.controller.sender.get_active_client_count()
+        return JSONResponse(
+            {
+                "total_packets": active_clients_count,
+                "lost_packets": 0,
+                "complete_frames": 228,
+                "average_fps": 0,
+                "packet_loss": 0,
+            }
+        )
 
     def video_feed(self):
         """Endpoint for video streaming."""

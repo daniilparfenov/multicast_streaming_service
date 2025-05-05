@@ -5,11 +5,16 @@
 
 #include <iomanip>
 #include <iostream>
+#include <random>
+
 #define LISTENING_TIMEOUT_S 3
 namespace MulticastLib {
 
 Receiver::Receiver(const std::string& multicastIP, int port)
-    : multicastIP_(multicastIP), port_(port), isReceiving_(false), sockfd_(-1), data_received(0) {}
+    : multicastIP_(multicastIP), port_(port), isReceiving_(false), sockfd_(-1), data_received(0) {
+    receiverID_ = generateClientID();
+    std::cout << "Receiver ID: " << receiverID_ << std::endl;
+}
 
 Receiver::~Receiver() {
     stop();
@@ -90,6 +95,12 @@ bool Receiver::receiveLoop() {
 
         if (recvLen > 0) {
             processPacket(buffer, recvLen);
+
+            if (sendHeartbeat(senderAddr)) {
+                std::cout << "Heartbeat sent to " << inet_ntoa(senderAddr.sin_addr) << std::endl;
+            } else {
+                std::cerr << "Failed to send heartbeat" << std::endl;
+            }
             cleanupExpiredFrames();
             lastPacketTime = std::chrono::steady_clock::now();
         } else {
@@ -212,6 +223,38 @@ bool Receiver::isReceiving() {
 ReceiverStatistics Receiver::getStatistics() {
     std::lock_guard<std::mutex> lock(statsMutex_);
     return stats_;
+}
+
+bool Receiver::sendHeartbeat(const sockaddr_in& senderAddr) {
+    int controlSock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (controlSock < 0) {
+        perror("heartbeat socket failed");
+        return false;
+    }
+
+    std::string heartbeat = "HEARTBEAT:" + receiverID_;
+
+    sockaddr_in controlAddr = senderAddr;
+    controlAddr.sin_port = htons(5050);  // управляющий порт Sender’а
+
+    ssize_t sent = sendto(controlSock, heartbeat.c_str(), heartbeat.size(), 0,
+                          (sockaddr*)&controlAddr, sizeof(controlAddr));
+
+    close(controlSock);
+
+    return sent >= 0;
+}
+
+std::string Receiver::generateClientID() {
+    // Генерация случайного уникального ID
+    std::random_device rd;
+    std::uniform_int_distribution<int> dist(0, 15);  // диапазон для шестнадцатеричных чисел
+
+    std::stringstream ss;
+    for (int i = 0; i < 8; ++i) {
+        ss << std::hex << dist(rd);
+    }
+    return ss.str();
 }
 
 }  // namespace MulticastLib

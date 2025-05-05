@@ -6,6 +6,7 @@
 #include <atomic>
 #include <mutex>
 #include <opencv2/opencv.hpp>
+#include <string>
 #include <thread>
 #include <unordered_map>
 
@@ -41,6 +42,8 @@ class Receiver {
     bool setupSocket();
     void processPacket(const std::vector<uint8_t>& buffer, ssize_t recvLen);
     void cleanupExpiredFrames();
+    bool sendHeartbeat(const sockaddr_in& senderAddr);
+    std::string generateClientID();
 
     std::string multicastIP_;
     int port_;
@@ -60,6 +63,8 @@ class Receiver {
 
     ReceiverStatistics stats_;
     std::mutex statsMutex_;
+
+    std::string receiverID_;
 };
 
 }  // namespace MulticastLib
