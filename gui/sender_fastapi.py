@@ -82,6 +82,7 @@ class WebServer:
         self.app.add_api_route("/status", self.get_status)
         self.app.add_api_route("/", self.get_html, response_class=HTMLResponse)
         self.app.mount("/static", StaticFiles(directory="static"), name="static")
+        self.app.mount("/styles", StaticFiles(directory="styles"), name="styles")
 
     def get_stats(self):
         active_clients_count = self.controller.sender.get_active_client_count()
