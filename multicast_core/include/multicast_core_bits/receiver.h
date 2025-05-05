@@ -6,10 +6,19 @@
 #include <atomic>
 #include <mutex>
 #include <opencv2/opencv.hpp>
+#include <string>
 #include <thread>
 #include <unordered_map>
 
 namespace MulticastLib {
+
+struct ReceiverStatistics {
+    uint64_t totalPacketsReceived = 0;
+    uint64_t totalCorruptedPackets = 0;
+    uint64_t totalFramesDecoded = 0;
+    double avgFps = 0.0;
+    std::chrono::steady_clock::time_point lastFrameTime = std::chrono::steady_clock::now();
+};
 
 class Receiver {
    public:
@@ -20,6 +29,7 @@ class Receiver {
     void stop();
     cv::Mat getLatestFrame();
     bool isReceiving();
+    ReceiverStatistics getStatistics();
 
    private:
     struct FrameData {
@@ -32,6 +42,8 @@ class Receiver {
     bool setupSocket();
     void processPacket(const std::vector<uint8_t>& buffer, ssize_t recvLen);
     void cleanupExpiredFrames();
+    bool sendHeartbeat(const sockaddr_in& senderAddr);
+    std::string generateClientID();
 
     std::string multicastIP_;
     int port_;
@@ -48,6 +60,11 @@ class Receiver {
 
     cv::Mat lastFrame_;
     std::mutex frameMutex_;
+
+    ReceiverStatistics stats_;
+    std::mutex statsMutex_;
+
+    std::string receiverID_;
 };
 
 }  // namespace MulticastLib

@@ -5,11 +5,16 @@
 
 #include <iomanip>
 #include <iostream>
+#include <random>
+
 #define LISTENING_TIMEOUT_S 3
 namespace MulticastLib {
 
 Receiver::Receiver(const std::string& multicastIP, int port)
-    : multicastIP_(multicastIP), port_(port), isReceiving_(false), sockfd_(-1), data_received(0) {}
+    : multicastIP_(multicastIP), port_(port), isReceiving_(false), sockfd_(-1), data_received(0) {
+    receiverID_ = generateClientID();
+    std::cout << "Receiver ID: " << receiverID_ << std::endl;
+}
 
 Receiver::~Receiver() {
     stop();
@@ -90,6 +95,12 @@ bool Receiver::receiveLoop() {
 
         if (recvLen > 0) {
             processPacket(buffer, recvLen);
+
+            if (sendHeartbeat(senderAddr)) {
+                std::cout << "Heartbeat sent to " << inet_ntoa(senderAddr.sin_addr) << std::endl;
+            } else {
+                std::cerr << "Failed to send heartbeat" << std::endl;
+            }
             cleanupExpiredFrames();
             lastPacketTime = std::chrono::steady_clock::now();
         } else {
@@ -105,7 +116,16 @@ bool Receiver::receiveLoop() {
 }
 
 void Receiver::processPacket(const std::vector<uint8_t>& buffer, ssize_t recvLen) {
-    if (recvLen < 12) return;
+    {
+        std::lock_guard<std::mutex> lock(statsMutex_);
+        stats_.totalPacketsReceived++;
+    }
+
+    if (recvLen < 12) {
+        std::lock_guard<std::mutex> lock(statsMutex_);
+        stats_.totalCorruptedPackets++;
+        return;
+    }
 
     uint8_t frame_id[8];
     uint16_t chunk_no, total_chunks;
@@ -139,8 +159,24 @@ void Receiver::processPacket(const std::vector<uint8_t>& buffer, ssize_t recvLen
                       << std::endl;
             cv::Mat frame = cv::imdecode(ordered_data, cv::IMREAD_COLOR);
             if (!frame.empty()) {
-                std::lock_guard<std::mutex> frameLock(frameMutex_);
-                lastFrame_ = frame.clone();
+                {
+                    std::lock_guard<std::mutex> frameLock(frameMutex_);
+                    lastFrame_ = frame.clone();
+                }
+
+                std::lock_guard<std::mutex> lock(statsMutex_);
+                stats_.totalFramesDecoded++;
+                auto now = std::chrono::steady_clock::now();
+                if (stats_.totalFramesDecoded > 1) {
+                    double delta =
+                        std::chrono::duration<double>(now - stats_.lastFrameTime).count();
+                    if (delta > 0) {
+                        double fps = 1.0 / delta;
+                        stats_.avgFps = (stats_.avgFps * (stats_.totalFramesDecoded - 1) + fps) /
+                                        stats_.totalFramesDecoded;
+                    }
+                }
+                stats_.lastFrameTime = now;
             }
             data_received = 0;
             frames_.erase(fid);
@@ -182,6 +218,43 @@ cv::Mat Receiver::getLatestFrame() {
 bool Receiver::isReceiving() {
     if (isReceiving_) return true;
     return false;
+}
+
+ReceiverStatistics Receiver::getStatistics() {
+    std::lock_guard<std::mutex> lock(statsMutex_);
+    return stats_;
+}
+
+bool Receiver::sendHeartbeat(const sockaddr_in& senderAddr) {
+    int controlSock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (controlSock < 0) {
+        perror("heartbeat socket failed");
+        return false;
+    }
+
+    std::string heartbeat = "HEARTBEAT:" + receiverID_;
+
+    sockaddr_in controlAddr = senderAddr;
+    controlAddr.sin_port = htons(5050);  // управляющий порт Sender’а
+
+    ssize_t sent = sendto(controlSock, heartbeat.c_str(), heartbeat.size(), 0,
+                          (sockaddr*)&controlAddr, sizeof(controlAddr));
+
+    close(controlSock);
+
+    return sent >= 0;
+}
+
+std::string Receiver::generateClientID() {
+    // Генерация случайного уникального ID
+    std::random_device rd;
+    std::uniform_int_distribution<int> dist(0, 15);  // диапазон для шестнадцатеричных чисел
+
+    std::stringstream ss;
+    for (int i = 0; i < 8; ++i) {
+        ss << std::hex << dist(rd);
+    }
+    return ss.str();
 }
 
 }  // namespace MulticastLib

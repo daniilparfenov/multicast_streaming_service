@@ -16,5 +16,7 @@ void init_sender(py::module_& m) {
         .def("stop_stream", &Sender::stopStream)
         .def(
             "get_preview_frame", [](Sender& self) { return matToNumpy(self.getPreviewFrame()); },
-            "Get last captured frame as numpy array");
+            "Get last captured frame as numpy array")
+        .def("get_active_client_count", &Sender::getActiveClientCount,
+             "Get the number of active clients");
 }
