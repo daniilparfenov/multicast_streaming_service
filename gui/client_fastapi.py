@@ -94,7 +94,17 @@ class WebServer:
         self.app.mount("/static", StaticFiles(directory="static"), name="static")
 
     def get_stats(self):
-        pass
+        stats = self.controller.client.getStatistics()
+        return JSONResponse({
+            "total_packets": stats.totalPacketsReceived,
+            "lost_packets": stats.totalCorruptedPackets,
+            "complete_frames": stats.totalFramesDecoded,
+            "average_fps": round(stats.avgFps, 2),
+            "packet_loss": round(
+                (stats.totalCorruptedPackets / stats.totalPacketsReceived * 100) if stats.totalPacketsReceived > 0 else 0.0, 2
+            )
+        })
+
 
     def video_feed(self):
         """Endpoint for video streaming."""

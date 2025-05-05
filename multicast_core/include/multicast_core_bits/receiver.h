@@ -11,6 +11,14 @@
 
 namespace MulticastLib {
 
+struct ReceiverStatistics {
+    uint64_t totalPacketsReceived = 0;
+    uint64_t totalCorruptedPackets = 0;
+    uint64_t totalFramesDecoded = 0;
+    double avgFps = 0.0;
+    std::chrono::steady_clock::time_point lastFrameTime = std::chrono::steady_clock::now();
+};
+
 class Receiver {
    public:
     Receiver(const std::string& multicastAddress, int port);
@@ -20,6 +28,7 @@ class Receiver {
     void stop();
     cv::Mat getLatestFrame();
     bool isReceiving();
+    ReceiverStatistics getStatistics();
 
    private:
     struct FrameData {
@@ -48,6 +57,9 @@ class Receiver {
 
     cv::Mat lastFrame_;
     std::mutex frameMutex_;
+
+    ReceiverStatistics stats_;
+    std::mutex statsMutex_;
 };
 
 }  // namespace MulticastLib
